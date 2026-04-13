@@ -1,0 +1,74 @@
+cd() {
+    # 1. Execute the actual cd command first.
+    # If it fails (e.g., directory doesn't exist), return the error code immediately.
+    builtin cd "$@" || return $?
+
+    local venv_dir=""
+    local search_dir="$PWD"
+
+    # 2. Search up the directory tree for .venv or venv
+    while true; do
+        if [[ -f "$search_dir/.venv/bin/activate" ]]; then
+            venv_dir="$search_dir/.venv"
+            break
+        elif [[ -f "$search_dir/venv/bin/activate" ]]; then
+            venv_dir="$search_dir/venv"
+            break
+        fi
+        
+        # Stop searching if we reach the root directory
+        if [[ "$search_dir" == "/" ]]; then
+            break
+        fi
+        
+        # Move one directory up
+        search_dir="$(dirname "$search_dir")"
+    done
+
+    # 3. Handle Activation / Deactivation
+    if [[ -n "$venv_dir" ]]; then
+        # We are in a directory structure containing a venv.
+        # Check if we need to activate it (ignoring if it's already the active one).
+        if [[ "$VIRTUAL_ENV" != "$venv_dir" ]]; then
+            # Deactivate the old one if it exists
+            if declare -f deactivate >/dev/null; then
+                deactivate
+            fi
+            # Activate the new one
+            source "$venv_dir/bin/activate"
+        fi
+    else
+        # We are not in a venv tree. Deactivate if one is currently running.
+        if [[ -n "$VIRTUAL_ENV" ]]; then
+            if declare -f deactivate >/dev/null; then
+                deactivate
+            fi
+        fi
+    fi
+}
+
+alias git-lease='git push --force-with-lease'
+alias git-clear='git fetch --prune && npx --yes git-removed-branches --prune --force'
+alias zreload='source ~/.zshrc'
+alias treload='tmux source-file ~/.tmux.conf'
+
+source /usr/share/zsh-autosuggestions/zsh-autosuggestions.zsh
+
+# 1. Check if we are NOT already inside a tmux session
+# 2. Check if we are running inside KDE Konsole
+# 3. Check if the shell is interactive
+if [[ -z "$TMUX" ]] && [[ -n "$KONSOLE_VERSION" ]] && [[ $- == *i* ]]; then
+    
+    # Get the name of the first unattached tmux session (if any exist)
+    # 2>/dev/null suppresses errors if the tmux server isn't running yet
+    UNATTACHED_SESSION=$(tmux list-sessions -F "#{session_name} #{session_attached}" 2>/dev/null | awk '$2 == "0" {print $1; exit}')
+
+    if [[ -n "$UNATTACHED_SESSION" ]]; then
+        # An unattached session was found! Attach to it.
+        # 'exec' replaces the current shell with tmux, so when you exit tmux, the Konsole tab closes cleanly.
+        exec tmux attach-session -t "$UNATTACHED_SESSION"
+    else
+        # No unattached sessions exist. Create a new one.
+        exec tmux new-session
+    fi
+fi
